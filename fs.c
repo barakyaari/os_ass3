@@ -759,7 +759,6 @@ createSwapFile(struct proc* p)
 	p->swapFile->readable = O_WRONLY;
 	p->swapFile->writable = O_RDWR;
     end_op();
-
     return 0;
 }
 

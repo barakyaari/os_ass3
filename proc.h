@@ -49,6 +49,12 @@ struct context {
   uint eip;
 };
 
+struct swapFileData {
+  char usedSlots[30];
+  int numberOfUsedPages;
+  int lastIndex;
+};
+
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -70,6 +76,9 @@ struct proc {
   //Swap file. must initiate with create swap file
   struct file *swapFile;			//page file
 
+  int numOfPages;                //
+  int numOfPagesInFile;
+  struct swapFileData* fileData;
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -77,3 +86,4 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+
