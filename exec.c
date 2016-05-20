@@ -94,6 +94,8 @@ exec(char *path, char **argv)
   proc->tf->esp = sp;
   switchuvm(proc);
   freevm(oldpgdir);
+
+  proc->numOfPages = proc->sz/PGSIZE;
   return 0;
 
  bad:

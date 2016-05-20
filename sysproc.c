@@ -8,27 +8,19 @@
 #include "proc.h"
 
 extern pte_t * walkpgdir(pde_t *pgdir, void *va, int alloc);
+extern int movePagesToFile(int numOfPagesToMove);
+extern void loadPageFromSwapFile(pte_t *pte, int offset);
+
+//extern int getPagesFromFile(int numOfPagesToMove);
 
 void printPageTables() {
     uint i;
 
   pde_t * pgdir = proc->pgdir;
-  // int size = proc->sz;
-
-  // cprintf("Page Directory:\n");
-  // cprintf("%p\n", pgdir);
-  // uint pointerValue;
-  // pointerValue = *pgdir;
-
-  // // for (i = 0; i < 5; i++) {
-  // //   cprintf("%p\n", pointerValue);
-  // //   pointerValue = pointerValue + sizeof(int);
-  // // }
-  // cprintf("-------------------------:\n");
 
   uint pa, flags;
     pte_t *pte;
-  for (i = 0; i < 5*PGSIZE; i += PGSIZE) {
+  for (i = 0; i < proc->numOfPages*PGSIZE; i += PGSIZE) {
     cprintf("-- PageTable: --\n");
     if ((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
@@ -37,7 +29,9 @@ void printPageTables() {
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
     cprintf("pa: %p\n", pa);
-    cprintf("flags: %d\n", flags);
+    cprintf("flags: %x\n", flags);
+
+    // cprintf("test Address: %p\n", v2p(PTE_ADDR(walkpgdir(proc->pgdir, (void*)PTE_ADDR(address), 1)[PTE_FLAGS(address)]);
   }
 
 }
@@ -45,15 +39,15 @@ void printPageTables() {
 void
 printProcessDetails() {
 
-  cprintf("---- ProcessDetails ----\n");
-  cprintf("%s - %d\n", proc->name, proc->pid);
+  cprintf("---- Process Details ----\n");
+  cprintf("  [Process Name: %s  PID: %d]\n", proc->name, proc->pid);
+  cprintf("Number of pages: %d\n", proc->numOfPages);
+  cprintf("proc->sz=%d\n", proc->sz);
+  cprintf("Swap File: %p\n", proc->swapFile);
+  cprintf("cr3 (rcr2()): %p\n", rcr2());
 
-  cprintf("%d\n", proc->sz);
-  cprintf("Swap File: %d", proc->swapFile);
   cprintf("Page Tables:\n");
   printPageTables();
-
-
 }
 
 int
@@ -88,8 +82,11 @@ sys_kill(void)
 int
 sys_getpid(void)
 {
-  printProcessDetails();
 
+  printProcessDetails();
+  movePagesToFile(4);
+
+  loadPageFromSwapFile(walkpgdir(proc->pgdir, 0, 0), 0);
   return proc->pid;
 }
 
@@ -98,10 +95,12 @@ sys_sbrk(void)
 {
   int addr;
   int n;
-
   if (argint(0, &n) < 0)
     return -1;
   addr = proc->sz;
+  if(proc->pid>2)
+    cprintf("sbrk called: n=%d\n", n);
+
   if (growproc(n) < 0)
     return -1;
   return addr;
