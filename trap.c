@@ -14,6 +14,9 @@ extern uint vectors[];  // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
 
+int fetchPage(int pageNum);
+
+
 void
 tvinit(void)
 {
@@ -71,7 +74,15 @@ trap(struct trapframe *tf)
             uartintr();
             lapiceoi();
             break;
-            
+
+        case T_PGFLT:
+            cprintf("missing page. rcr2: %d\n", rcr2()/PGSIZE);
+            cprintf("fetching...\n");
+            if(fetchPage(rcr2()/PGSIZE)){
+                lapiceoi();
+                cprintf("fetched page!\n");
+            }
+            break;
 
         case T_IRQ0 + 7:
         case T_IRQ0 + IRQ_SPURIOUS:
@@ -81,6 +92,7 @@ trap(struct trapframe *tf)
             break;
 
             //PAGEBREAK: 13
+
         default:
             if(proc == 0 || (tf->cs&3) == 0){
                 // In kernel, it must be our mistake.

@@ -1,3 +1,4 @@
+#include <wchar.h>
 #include "param.h"
 #include "types.h"
 #include "defs.h"
@@ -12,6 +13,8 @@
 
 extern int createSwapFile(struct proc* p);
 extern int removeSwapFile(struct proc* p);
+
+uint findPageInFile(int num);
 
 extern char data[];  // defined by kernel.ld
 
@@ -71,6 +74,11 @@ void *movePageToFile() {
     void* offset = selectPageToMove();
     movePage(offset);
     return offset;
+}
+
+
+uint findPageInFile(int pageNum) {
+    return pageNum * PGSIZE;
 }
 
 
@@ -450,10 +458,38 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
     return 0;
 }
 
+
+int fetchPage(int pageNum){
+    cprintf("Fetch page function\n");
+    char* mem;
+    mem = kalloc();
+    char buff[PGSIZE];
+    readFromSwapFile(proc, buff, findPageInFile(pageNum), PGSIZE);
+    memmove(mem, buff, PGSIZE);
+    pte_t *pte = walkpgdir(proc->pgdir, (void*)(pageNum*PGSIZE), 0);
+
+    cprintf("Present: %d\n", (*pte & PTE_P));
+    cprintf("Swapped out: %d\n", ((*pte & PTE_PG) != 0));
+
+    *pte |= PTE_A; //Turn present on
+
+    mappages(proc->pgdir, (void*)(pageNum*PGSIZE), PGSIZE, v2p(mem), PTE_W|PTE_U);
+
+
+    *pte &= (~PTE_PG); // turn paged out off
+    *pte |= PTE_A; //Turn present on
+    cprintf("Present: %d\n", (*pte & PTE_P));
+    cprintf("Swapped out: %d\n", ((*pte & PTE_PG) != 0));
+
+    return 1;
+}
+
 //PAGEBREAK!
 // Blank page.
 //PAGEBREAK!
 // Blank page.
 //PAGEBREAK!
 // Blank page.
+
+
 

@@ -21,7 +21,7 @@ void printPageTables() {
     uint pa;
     pte_t *pte;
     for (i = 0; i < proc->numOfPages*PGSIZE; i += PGSIZE) {
-        cprintf("-- PageTable: --\n");
+        cprintf("-- PTE:  %d --\n", i/PGSIZE);
         if ((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
             panic("copyuvm: pte should exist");
         pa = PTE_ADDR(*pte);

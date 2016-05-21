@@ -21,7 +21,9 @@ main(int argc, char *argv[])
     printf(1, "getpid successfuly!\n");
 
 
-
+    int pid = fork();
+    if(pid !=0)
+        wait();
 
     // getpid();
 
