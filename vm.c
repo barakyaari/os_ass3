@@ -46,11 +46,39 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 pde_t *kpgdir;  // for use in scheduler()
 struct segdesc gdt[NSEGS];
 
+void *selectPageToMoveFifo() {
+    pte_t *pte;
+    int i;
+    for (i = 3*PGSIZE; i < proc->numOfPages*PGSIZE; i += PGSIZE) {
+
+        cprintf("-- checking page:  %d --\n", i/PGSIZE);
+        if ((pte = walkpgdir(proc->pgdir, (void *) i, 0)) == 0)
+            panic("copyuvm: pte should exist");
+
+        int present = (*pte & PTE_P);
+        int swappedOut = (*pte & PTE_PG);
+        if(present && !swappedOut){
+            return (void*)i;
+        }
+    }
+    panic("No page found for swapping :(");
+}
+
+
+
 void *selectPageToMove() {
-    void* offset =(void* ) (0 + 14 * PGSIZE);
-    cprintf("Selecting page to move\n");
-    cprintf("selected page is: %d\n", (int)offset/PGSIZE);
-    return offset;
+#ifdef DEFAULT
+    cprintf("default\n");
+    return selectPageToMoveFifo();
+
+
+#elif FIFO
+    cprintf("fifo\n ");
+
+    return selectPageToMoveFifo();
+
+#endif
+
 }
 
 void movePage(pte_t* pte) {
@@ -58,7 +86,8 @@ void movePage(pte_t* pte) {
     char buff[PGSIZE];
     safestrcpy(buff, (char*)pte, PGSIZE);
     cprintf("buff is:\n %x\n", buff);
-    writeToSwapFile(proc, buff, proc->fileData->lastIndex, PGSIZE);
+
+    writeToSwapFile(proc, buff, (int)pte, PGSIZE);
     proc->fileData->lastIndex = proc->fileData->lastIndex + PGSIZE;
 }
 
@@ -474,6 +503,7 @@ int fetchPage(int pageNum){
     *pte |= PTE_A; //Turn present on
 
     mappages(proc->pgdir, (void*)(pageNum*PGSIZE), PGSIZE, v2p(mem), PTE_W|PTE_U);
+
 
 
     *pte &= (~PTE_PG); // turn paged out off

@@ -24,10 +24,6 @@ static void wakeup1(void *chan);
 void initSwapFileData(struct proc* p) {
     p->fileData->numberOfUsedPages = 0;
     p->fileData->lastIndex = -1;
-    int i;
-    for (i = 0; i < 30; i++) {
-        p->fileData->usedSlots[i] = 0;
-    }
 }
 
 void
@@ -188,6 +184,15 @@ fork(void)
     acquire(&ptable.lock);
     np->state = RUNNABLE;
     release(&ptable.lock);
+    if(proc->pid > 2) {
+        int newSwapFile = createSwapFile(np);
+        if (!newSwapFile) {
+            int size = (30 - proc->numOfPages) * 4096;
+            char buff[size];
+            readFromSwapFile(proc, buff, 0, size);
+            writeToSwapFile(np, buff, 0, size);
+        }
+    }
 
     return pid;
 }
@@ -488,7 +493,7 @@ procdump(void)
         if(p->pid > 2) {
             cprintf("lastIndex: %d\n", p->fileData->lastIndex);
         }
-                cprintf("%d %s %s  \n Size: %d\n Swapfile: %p\n numOfPages: %d\n numOfPagesInFile: %d\n\n", p->pid, state, p->name, p->sz, p->swapFile, p->numOfPages, p->numOfPagesInFile);
+        cprintf("%d %s %s  \n Size: %d\n Swapfile: %p\n numOfPages: %d\n numOfPagesInFile: %d\n\n", p->pid, state, p->name, p->sz, p->swapFile, p->numOfPages, p->numOfPagesInFile);
 
         if (p->state == SLEEPING) {
             getcallerpcs((uint*)p->context->ebp + 2, pc);

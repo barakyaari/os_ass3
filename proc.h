@@ -53,7 +53,6 @@ struct context {
 };
 
 struct swapFileData {
-    char usedSlots[30];
     int numberOfUsedPages;
     int lastIndex;
 };
