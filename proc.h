@@ -81,6 +81,7 @@ struct proc {
 
     int numOfPages;                //
     int numOfPagesInFile;
+    int numOfPagesInMemory;
     struct swapFileData fileData[1];
 };
 

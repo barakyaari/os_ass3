@@ -6,6 +6,8 @@
 // Memory allocator by Kernighan and Ritchie,
 // The C programming Language, 2nd ed.  Section 8.7.
 
+extern void cprintf(char *fmt, ...);
+
 typedef long Align;
 
 union header {
@@ -24,6 +26,7 @@ static Header *freep;
 void
 free(void *ap)
 {
+
   Header *bp, *p;
 
   bp = (Header*)ap - 1;

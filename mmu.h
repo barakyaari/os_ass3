@@ -38,7 +38,6 @@
 #define CR0_PG          0x80000000      // Paging
 
 #define CR4_PSE         0x00000010      // Page size extension
-
 #define SEG_KCODE 1  // kernel code
 #define SEG_KDATA 2  // kernel data+stack
 #define SEG_KCPU  3  // kernel per-cpu data
@@ -139,6 +138,7 @@ struct segdesc {
 #define PTE_D           0x040   // Dirty
 #define PTE_PS          0x080   // Page Size
 #define PTE_MBZ         0x180   // Bits must be zero
+#define PTE_PG 0x200 // Paged out to secondary storage
 
 // Address in page table or page directory entry
 #define PTE_ADDR(pte)   ((uint)(pte) & ~0xFFF)

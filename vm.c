@@ -7,8 +7,8 @@
 #include "proc.h"
 #include "elf.h"
 
-#define MAX_PSYC_PAGES 10
-#define MAX_TOTAL_PAGES 20
+#define MAX_PSYC_PAGES 15
+#define MAX_TOTAL_PAGES 30
 
 extern int createSwapFile(struct proc* p);
 extern int removeSwapFile(struct proc* p);
@@ -43,15 +43,11 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 pde_t *kpgdir;  // for use in scheduler()
 struct segdesc gdt[NSEGS];
 
-pte_t *selectPageToMove(int i) {
-    pte_t *pte;
+void *selectPageToMove() {
+    void* offset =(void* ) (0 + 14 * PGSIZE);
     cprintf("Selecting page to move\n");
-    if ((pte = walkpgdir(proc->pgdir, (void *) (i *PGSIZE), 0)) == 0) {
-        panic("copyuvm: pte should exist");
-    }
-    cprintf("selected page is: %d\n", pte);
-
-    return pte;
+    cprintf("selected page is: %d\n", (int)offset/PGSIZE);
+    return offset;
 }
 
 void movePage(pte_t* pte) {
@@ -63,10 +59,6 @@ void movePage(pte_t* pte) {
     proc->fileData->lastIndex = proc->fileData->lastIndex + PGSIZE;
 }
 
-void deletePageFromPhysical(pte_t* pte) {
-
-}
-
 void loadPageFromSwapFile(pte_t *pte, int offset){
     cprintf("loading page from swapfile, offset:%d\n", offset);
     char buff[PGSIZE];
@@ -75,16 +67,10 @@ void loadPageFromSwapFile(pte_t *pte, int offset){
     memmove(buff, (void*) pte, PGSIZE);
 }
 
-int movePagesToFile(int numOfPagesToMove) {
-    int i;
-    for (i = 0; i < numOfPagesToMove; i++) {
-
-        pte_t* pte = selectPageToMove(i);
-        movePage(pte);
-        deletePageFromPhysical(pte);
-
-    }
-    return 0;
+void *movePageToFile() {
+    void* offset = selectPageToMove();
+    movePage(offset);
+    return offset;
 }
 
 
@@ -126,13 +112,12 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
     char *a, *last;
     pte_t *pte;
-
     a = (char*)PGROUNDDOWN((uint)va);
     last = (char*)PGROUNDDOWN(((uint)va) + size - 1);
     for (;;) {
         if ((pte = walkpgdir(pgdir, a, 1)) == 0)
             return -1;
-        if (*pte & PTE_P)
+        if ((*pte & PTE_P) & !(*pte & PTE_PG))
             panic("remap");
         *pte = pa | perm | PTE_P;
         if (a == last)
@@ -274,6 +259,7 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
 int
 allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 {
+    cprintf("allocuvm starting, pid is: %d\n", proc->pid);
     char *mem;
     uint a;
 
@@ -281,6 +267,9 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
         return 0;
     if (newsz < oldsz)
         return oldsz;
+    if(newsz > PGSIZE * MAX_TOTAL_PAGES){
+        panic("Process's page number exceeded.");
+    }
 
     a = PGROUNDUP(oldsz);
     for (; a < newsz; a += PGSIZE) {
@@ -291,22 +280,31 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
             return 0;
         }
         memset(mem, 0, PGSIZE);
-        mappages(pgdir, (char*)a, PGSIZE, v2p(mem), PTE_W | PTE_U);
-    }
+        if(proc->pid > 2) {
+            if (proc->numOfPages < MAX_PSYC_PAGES) {
+                mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
+                proc->numOfPages++;
+            }
+            else {//More than 15 pages:
+                cprintf("Pid of moving proc is: %d\n", proc->pid);
+                void *va = movePageToFile();
+                pte_t* pte = walkpgdir(pgdir, va , 0);
+                uint pa = PTE_ADDR(*pte);
+                cprintf("Kfreeing: %d=>%d", pa, p2v(pa));
+                kfree(p2v(pa));
+                *pte = (*pte | PTE_PG);//Turn on in hard disk flag
+                *pte = (*pte & ~PTE_P);//turn off present flag
 
-    int numOfPagesAfterAlloc = newsz / PGSIZE;
-    if (numOfPagesAfterAlloc > MAX_TOTAL_PAGES) {
-        panic("Process's page number exceeded.");
-    }
-    if (numOfPagesAfterAlloc > MAX_PSYC_PAGES) {
-        movePagesToFile(numOfPagesAfterAlloc - MAX_TOTAL_PAGES);
-    }
+                mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
 
-    proc->numOfPages = newsz / PGSIZE;
-//    if(proc->numOfPages > 11){
-//        cprintf("Moving page...\n");
-//        movePagesToFile(1);
-//    }
+                proc->numOfPages++;
+            }
+        }
+        else{
+            mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
+            proc->numOfPages++;
+        }
+    }
     return newsz;
 }
 

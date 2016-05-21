@@ -140,7 +140,10 @@ growproc(int n)
             return -1;
     }
     proc->sz = sz;
+    cprintf("Growproc calling switchuvm\n");
     switchuvm(proc);
+    cprintf("Growproc finished\n");
+
     return 0;
 }
 
