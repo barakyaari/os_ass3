@@ -16,6 +16,7 @@ struct {
 
 static struct proc *initproc;
 
+extern void cleanProcessPagesData();
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
@@ -76,11 +77,7 @@ allocproc(void)
     p->context = (struct context*)sp;
     memset(p->context, 0, sizeof * p->context);
     p->context->eip = (uint)forkret;
-    if (!defaultPolicy && p->pid > 2) { //Init (1) and Shell (2) don't need a swapFile.
-        createSwapFile(p);
-        p->fileData->lastIndex = 0;
-        clearReferencedBits();
-    }
+
     // initSwapFileData(p);
     return p;
 }
@@ -173,6 +170,10 @@ fork(void)
     np->parent = proc;
     *np->tf = *proc->tf;
 
+
+
+
+
     // Clear %eax so that fork returns 0 in the child.
     np->tf->eax = 0;
 //
@@ -201,6 +202,15 @@ fork(void)
 
     release(&ptable.lock);
 
+    if (!defaultPolicy && np->pid > 2) { //Init (1) and Shell (2) don't need a swapFile.
+        createSwapFile(np);
+        for(i = 0; i < 15; i++){
+            np->fileData->swapFileMapping[i] = -1;
+        }
+        np->fileData->lastIndex = 0;
+        clearReferencedBits();
+    }
+
     return pid;
 }
 
@@ -228,7 +238,8 @@ exit(void)
     iput(proc->cwd);
     end_op();
     proc->cwd = 0;
-    removeSwapFile(proc);
+    cleanProcessPagesData();
+
     acquire(&ptable.lock);
 
     // Parent might be sleeping in wait().
@@ -466,6 +477,8 @@ kill(int pid)
     return -1;
 }
 
+extern void printStats();
+
 //PAGEBREAK: 36
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
@@ -497,21 +510,24 @@ procdump(void)
         else
             state = "???";
         cprintf("pgdir: %p\n", p->pgdir);
-        if(p->pid > 2) {
-            cprintf("lastIndex: %d\n", p->fileData->lastIndex);
-        }
-        cprintf("Arrival time:\n");
-        for (i = 0; i < 15; i++){
-            cprintf("%d ", p->fileData->arrivalTime[i]);
-        }
+
         cprintf("\n");
+        cprintf("State: %s\n", state);
 
-        cprintf("Size: %d\n", p->sz);
 
+//
+//        cprintf("Size: %d\n", p->sz);
+//
+//
+//        cprintf("%d %s %s  \n Swapfile: %p\n numOfPages: %d\n numOfPagesInFile: %d\n\n", p->pid, state, p->name, p->swapFile, p->numOfPages, p->numOfPagesInFile);
+//
 
-        cprintf("%d %s %s  \n Swapfile: %p\n numOfPages: %d\n numOfPagesInFile: %d\n\n", p->pid, state, p->name, p->swapFile, p->numOfPages, p->numOfPagesInFile);
-
+        cprintf("Pid: %d\n", p->pid);
+        cprintf("Name: %s\n", p->name);
+        cprintf("numOfPages: %d\n", p->numOfPages);
         if (p->state == SLEEPING) {
+            printStats(p);
+
             getcallerpcs((uint*)p->context->ebp + 2, pc);
             for (i = 0; i < 10 && pc[i] != 0; i++)
                 cprintf(" %p", pc[i]);

@@ -55,6 +55,8 @@ struct context {
 struct swapFileData {
     int arrivalTime[30];
     int nfuCounter[30];
+    int swapFileMapping[15];
+
     int lastIndex;
 };
 

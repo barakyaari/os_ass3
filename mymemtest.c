@@ -19,23 +19,17 @@ main(int argc, char *argv[])
     printf(1, "Malloced successfuly (m1)!\n");
 
     memset(m1, 'a', 4096*12);
-    printf(1, "Setting m1 finished!\n");
+//    printf(1, "Setting m1 finished!\n");
+    printf(1, "Trying second sbark:\n");
 
-    void* m2 = sbrk(PGSIZE*13);
-    printf(1, "Malloced successfuly (m2)!\n");
+    void* m2 = sbrk(PGSIZE*12);
+    printf(1, "Setting memory to 'a':\n");
 
-    memset(m2, 'a', PGSIZE*13);
-    printf(1, "Setting m2 finished!\n");
+    memset(m2, 'a', PGSIZE*3);
+    printf(1, "finished setting memory to 'a':\n");
 
 
 
-    sbrk(-20*PGSIZE);
-    printf(1, "Negative SBRK finished!\n");
-
-    m1 = sbrk(20*PGSIZE);
-    memset(m1, 'a', 4096*20);
-
-    // getpid();
 //
 //    int pid=fork();
 //    if(pid == 0) {
@@ -47,6 +41,9 @@ main(int argc, char *argv[])
 //    }
 
     printf(1, "mem ok\n");
+
+    sbrk(24*pageSize*(-1));
+    printf(1, "freex ok\n");
 
     exit();
 }

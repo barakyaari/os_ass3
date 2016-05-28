@@ -25,12 +25,10 @@ int defaultPolicy = 0;
 #endif
 
 
-
+char buff[PGSIZE];
 
 int lastPageSwappedOut = 3;
 uint findPageInFile(int num);
-
-void removeOnePage();
 
 void updateStatsOnPageEntrance(int pageNum);
 
@@ -64,21 +62,30 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 pde_t *kpgdir;  // for use in scheduler()
 struct segdesc gdt[NSEGS];
 
-void printStats(){
+void printStats(struct proc *p){
+    if(!p){
+        return;
+    }
     int i;
-    for(i = 3; i < 30; i++){
-        pte_t *pte1;
-        if ((pte1 = walkpgdir(proc->pgdir, (void *) (i*PGSIZE), 0)) == 0)
-            panic("copyuvm: pte should exist");
-        int referenced1 = (*pte1 & PTE_A);
+    cprintf("  Num\t|  P\t|  R\t|  SO\n");
 
-        cprintf("Page %d-->%x-->%d (present)(ArrivalTime)(referenced)\n", i, proc->fileData->arrivalTime[i], referenced1);
+    cprintf("----------------------------------------------\n");
+
+    for(i = 0; i < 30; i++){
+        pte_t *pte;
+        if ((pte = walkpgdir(p->pgdir, (void *) (i*PGSIZE), 0)) == 0)
+            panic("copyuvm: pte should exist");
+        int referenced = (*pte & PTE_A);
+        int present = (*pte & PTE_P);
+        int swappedOut = (*pte & PTE_PG);
+
+        cprintf("  %d\t|  %d\t|  %d\t|  %d\t \n",i, present, referenced, swappedOut);
+
     }
 }
 
 void clearReferencedBits() {
     int i;
-
 
     for (i = 3; i < 30; i++) {
         pte_t *pte;
@@ -94,8 +101,8 @@ void *selectPageToMoveFifo() {
     int i;
     int currentMax = -1;
     int selectedPage = -1;
-    for (i = 3; i < 30; i++) {
-            if (proc->fileData->arrivalTime[i] > currentMax) {
+    for (i = 3; i < 15; i++) {
+        if (proc->fileData->arrivalTime[i] > currentMax) {
             currentMax = proc->fileData->arrivalTime[i];
             selectedPage = i;
         }
@@ -178,7 +185,22 @@ void *selectPageToMoveNfu() {
 //    panic("No page found for swapping");
 //}
 
+void cleanProcessPagesData(){
+    removeSwapFile(proc);
+//    int i;
+//    for (i = 0; i < 30; i++) {
+//        pte_t *pte;
+//        if ((pte = walkpgdir(proc->pgdir, (void *) (i * PGSIZE), 0)) == 0) {
+//            panic("cleanProcessPagesData: pte should exist");
+//        }
+//        int present = (*pte & PTE_P);
+//        if(present){
+//            uint pa = PTE_ADDR(*pte);
+//            kfree(p2v(pa));
+//        }
+//    }
 
+}
 
 void *selectPageToMove() {
 #ifdef NONE
@@ -192,8 +214,7 @@ void *selectPageToMove() {
     return selectPageToMoveScFifo();
 
 #elif NFU
-   return selectPageToMoveNfu();
-
+    return selectPageToMoveNfu();
 
 #endif
 
@@ -202,24 +223,40 @@ void *selectPageToMove() {
 void movePage(pte_t* pte) {
     char buff[PGSIZE];
     safestrcpy(buff, (char*)pte, PGSIZE);
-    writeToSwapFile(proc, buff, (int)pte, PGSIZE);
+    int i;
+    for(i = 0; i < 15; i++){
+        if(proc->fileData->swapFileMapping[i] == -1){
+            break;
+        }
+    }
+    if(writeToSwapFile(proc, buff, i*PGSIZE, PGSIZE) < 4096){
+        panic("WriteToSwapFile Failed.");
+    }
+    proc->fileData->swapFileMapping[i] = (int)pte/PGSIZE;
+
+
     proc->fileData->lastIndex = proc->fileData->lastIndex + PGSIZE;
+
+    cprintf("SwapFileMapping:\n");
+    for(i = 0; i < 15; i++){
+        cprintf("[%d->%d]\n", i, proc->fileData->swapFileMapping[i]);
+    }
+    cprintf("\n");
 }
 
-void loadPageFromSwapFile(pte_t *pte, int offset){
-    cprintf("loading page from swapfile, offset:%d\n", offset);
-    char buff[PGSIZE];
-    readFromSwapFile(proc, buff, offset, PGSIZE);
+void loadPageFromSwapFile(char* buff, int pageNumber){
+    cprintf("loading page from swapfile, Number:%d\n", pageNumber);
+    int i;
     cprintf("Moving from buff to pte:\n");
-    memmove(buff, (void*) pte, PGSIZE);
+    for(i = 0; i < 15; i++){
+        if(proc->fileData->swapFileMapping[i] == pageNumber){
+            break;
+        }
+    }
+    int locationInSwapFile = i * PGSIZE;
+    proc->fileData->swapFileMapping[i] = -1;
+    readFromSwapFile(proc, buff, locationInSwapFile, PGSIZE);
 }
-
-void *movePageToFile() {
-    void* offset = selectPageToMove();
-    movePage(offset);
-    return offset;
-}
-
 
 uint findPageInFile(int pageNum) {
     return pageNum * PGSIZE;
@@ -285,14 +322,14 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
     return 0;
 }
 
-void removeOnePage() {
-    void *va = movePageToFile();
+void* selectOnePageToRemove() {
+    void *va = selectPageToMove();//Returns index * PGSize
     pte_t* pte = walkpgdir(proc->pgdir, va , 0);
-    uint pa = PTE_ADDR(*pte);
-    kfree(p2v(pa));
+//    uint pa = PTE_ADDR(*pte);
+//    kfree(p2v(pa));
     *pte = (*pte | PTE_PG);//Turn on in hard disk flag
     *pte = (*pte & ~PTE_P);//turn off present flag
-
+    return va;
 }
 
 
@@ -346,8 +383,8 @@ setupkvm(void)
     if (p2v(PHYSTOP) > (void*)DEVSPACE)
         panic("PHYSTOP too high");
 
+
     for (k = kmap; k < &kmap[NELEM(kmap)]; k++){
-        cprintf("got here1... %d\n", k);
 
         if (mappages(pgdir, k->virt, k->phys_end - k->phys_start,
                      (uint) k->phys_start, k->perm) < 0) {
@@ -429,6 +466,28 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
     return 0;
 }
 
+
+void savePageInSwapFile(char* buff, int pageNumber){
+    cprintf("Saving page (%d) in swap file\n", pageNumber);
+    int i;
+    //Find free slot:
+    for(i = 0; i < 15; i++){
+        if(proc->fileData->swapFileMapping[i] == -1){
+            break;
+        }
+    }
+
+    if(writeToSwapFile(proc, buff, i*PGSIZE, PGSIZE) < 4096){
+        panic("WriteToSwapFile Failed.");
+    }
+    proc->fileData->swapFileMapping[i] = pageNumber;
+    cprintf("SwapFileMapping:\n");
+    for(i = 0; i < 15; i++){
+        cprintf("[%d->%d]\n", i, proc->fileData->swapFileMapping[i]);
+    }
+    cprintf("\n");
+}
+
 // Allocate page tables and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 int
@@ -448,23 +507,38 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 
     a = PGROUNDUP(oldsz);
     for (; a < newsz; a += PGSIZE) {
+
         mem = kalloc();
+
         if (mem == 0) {
             cprintf("allocuvm out of memory\n");
             deallocuvm(pgdir, newsz, oldsz);
             return 0;
         }
         memset(mem, 0, PGSIZE);
-        if(!defaultPolicy && proc->pid > 2) {
+
+        if(proc && !defaultPolicy && proc->pid > 2) {
+            int pageNumber = a/PGSIZE;
+            cprintf("Adding page Number %d, pid=%d\n", pageNumber, proc->pid);
             if (proc->numOfPages >= MAX_PSYC_PAGES) {//More than 15 pages:
-                removeOnePage();
+
+                void* pageToRemove = selectOnePageToRemove();
+                cprintf("Found page to remove: %x\n", pageToRemove);
+                memmove(buff, pageToRemove, PGSIZE);
+                //TODO:THis causes looking for page 3 again and again....
+                //Probably mapping it incorrectly.
+                cprintf("memmove finished\n");
+
+                savePageInSwapFile(buff, (int)a/PGSIZE);
+                mappages(pgdir, (char *) a, PGSIZE, v2p(pageToRemove), PTE_W | PTE_U);
             }
 
             updateStatsOnPageEntrance((int)a/PGSIZE);
             mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
             pte_t *pte;
-            if ((pte = walkpgdir(pgdir, (void*)a, 0)) == 0)
+            if ((pte = walkpgdir(pgdir, (void*)a, 0)) == 0) {
                 panic("loaduvm: address should exist");
+            }
 
             *pte = (*pte & ~PTE_A);//Clear referenced flag
 
@@ -475,6 +549,8 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
             proc->numOfPages++;
         }
     }
+    cprintf("Here - proc: %d\n", proc->pid);
+
     return newsz;
 }
 
@@ -551,7 +627,6 @@ void
 freevm(pde_t *pgdir)
 {
     uint i;
-
     if (pgdir == 0)
         panic("freevm: no pgdir");
     deallocuvm(pgdir, KERNBASE, 0);
@@ -673,19 +748,31 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 }
 
 
+
 int fetchPage(int pageNum){
-    removeOnePage();
-    char* mem;
-    mem = kalloc();
-    char buff[PGSIZE];
-    readFromSwapFile(proc, buff, findPageInFile(pageNum), PGSIZE);
-    memmove(mem, buff, PGSIZE);
+    cprintf("Fetching page: %d\n", pageNum);
+    //Load page from swapFile into Buff:
+    char buffFromFile[PGSIZE];
+    char buffFromMemory[PGSIZE];
+
+    loadPageFromSwapFile(buffFromFile, pageNum);
+
+    //Remove a page from memory to file:
+    void* removedPageAddress = selectOnePageToRemove();
+//    char* mem;
+//    mem = kalloc();
+//    memmove(removedPageAddress, buff, PGSIZE);
+    memmove(buffFromMemory, removedPageAddress, PGSIZE);
+
+    //Now both buffers have data
+    savePageInSwapFile(buffFromMemory, pageNum);
+    memmove(removedPageAddress, buffFromFile, PGSIZE);
+    mappages(proc->pgdir, (char *) (pageNum*PGSIZE), PGSIZE, v2p(removedPageAddress), PTE_W | PTE_U);
+
     pte_t *pte = walkpgdir(proc->pgdir, (void*)(pageNum*PGSIZE), 0);
     updateStatsOnPageEntrance(pageNum);
 
     *pte |= PTE_A; //Turn present on
-
-    mappages(proc->pgdir, (void*)(pageNum*PGSIZE), PGSIZE, v2p(mem), PTE_W|PTE_U);
     *pte &= (~PTE_PG); // turn paged out off
     *pte |= PTE_A; //Turn present on
 
