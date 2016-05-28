@@ -11,6 +11,8 @@
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
+
+extern void updateAgingForNfu();
 struct spinlock tickslock;
 uint ticks;
 
@@ -35,6 +37,9 @@ idtinit(void)
     lidt(idt, sizeof(idt));
 }
 
+extern pte_t *
+        walkpgdir(pde_t *pgdir, const void *va, int alloc);
+
 //PAGEBREAK: 41
 void
 trap(struct trapframe *tf)
@@ -54,6 +59,9 @@ trap(struct trapframe *tf)
             if(cpu->id == 0){
                 acquire(&tickslock);
                 ticks++;
+                if(proc && proc->pid > 2){
+                    updateAgingForNfu();
+                }
                 wakeup(&ticks);
                 release(&tickslock);
             }
@@ -116,8 +124,16 @@ trap(struct trapframe *tf)
 
     // Force process to give up CPU on clock tick.
     // If interrupts were on while locks held, would need to check nlock.
-    if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER)
+    if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER) {
+
+
+
+        if(proc && proc->pid > 2){
+            updateAgingForNfu();
+        }
+
         yield();
+    }
 
     // Check if the process has been killed since we yielded
     if(proc && proc->killed && (tf->cs&3) == DPL_USER)

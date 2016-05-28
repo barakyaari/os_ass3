@@ -14,7 +14,25 @@
 extern int createSwapFile(struct proc* p);
 extern int removeSwapFile(struct proc* p);
 
+
+
+#ifdef NONE
+int defaultPolicy = 1;
+
+#else
+int defaultPolicy = 0;
+
+#endif
+
+
+
+
+int lastPageSwappedOut = 3;
 uint findPageInFile(int num);
+
+void removeOnePage();
+
+void updateStatsOnPageEntrance(int pageNum);
 
 extern char data[];  // defined by kernel.ld
 
@@ -46,43 +64,167 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 pde_t *kpgdir;  // for use in scheduler()
 struct segdesc gdt[NSEGS];
 
-void *selectPageToMoveFifo() {
-    pte_t *pte;
+void printStats(){
     int i;
-    for (i = 3*PGSIZE; i < proc->numOfPages*PGSIZE; i += PGSIZE) {
-
-        cprintf("-- checking page:  %d --\n", i/PGSIZE);
-        if ((pte = walkpgdir(proc->pgdir, (void *) i, 0)) == 0)
+    for(i = 3; i < 30; i++){
+        pte_t *pte1;
+        if ((pte1 = walkpgdir(proc->pgdir, (void *) (i*PGSIZE), 0)) == 0)
             panic("copyuvm: pte should exist");
+        int referenced1 = (*pte1 & PTE_A);
 
+        cprintf("Page %d-->%x-->%d (present)(ArrivalTime)(referenced)\n", i, proc->fileData->arrivalTime[i], referenced1);
+    }
+}
+
+void clearReferencedBits() {
+    int i;
+
+
+    for (i = 3; i < 30; i++) {
+        pte_t *pte;
+        if ((pte = walkpgdir(proc->pgdir, (void *) (i * PGSIZE), 0)) == 0) {
+            panic("copyuvm: pte should exist");
+        }
+        *pte &= (~PTE_A);
+    }
+
+    for(i = 3; i < 30; i++){
+        pte_t *pte1;
+        if ((pte1 = walkpgdir(proc->pgdir, (void *) (i*PGSIZE), 0)) == 0)
+            panic("copyuvm: pte should exist");
+        int referenced1 = (*pte1 & PTE_A);
+
+        cprintf("Page %d-->%x-->%d (present)(ArrivalTime)(referenced)\n", i, proc->fileData->arrivalTime[i], referenced1);
+
+    }
+}
+
+void *selectPageToMoveFifo() {
+    int i;
+    int currentMax = -1;
+    int selectedPage = -1;
+    for (i = 3; i < 30; i++) {
+        pte_t *pte;
+        if ((pte = walkpgdir(proc->pgdir, (void *) ((int)i*PGSIZE), 0)) == 0)
+            panic("copyuvm: pte should exist");
         int present = (*pte & PTE_P);
-        int swappedOut = (*pte & PTE_PG);
-        if(present && !swappedOut){
-            return (void*)i;
+
+        cprintf("page %d->->%d-->%x (present)(ArrivalTime)\n", i, present, proc->fileData->arrivalTime[i]);
+
+        if (proc->fileData->arrivalTime[i] > currentMax) {
+            currentMax = proc->fileData->arrivalTime[i];
+            selectedPage = i;
         }
     }
-    panic("No page found for swapping :(");
+    proc->fileData->arrivalTime[selectedPage] = 0;
+
+    return (void*)(selectedPage * PGSIZE);
 }
+
+void *selectPageToMoveScFifo() {
+    int i;
+    int currentMax = -1;
+    int selectedPage = -1;
+    while(selectedPage == -1) {
+        for (i = 3; i < 30; i++) {//Find the Page with the highest arrival time:
+            if (proc->fileData->arrivalTime[i] > currentMax) {
+                currentMax = proc->fileData->arrivalTime[i];
+                selectedPage = i;
+            }
+        }
+        //Clear referenced bit and continue if needed:
+        //Check if page is referenced:
+        pte_t *pte;
+        if ((pte = walkpgdir(proc->pgdir, (void *) (selectedPage*PGSIZE), 0)) == 0)
+            panic("copyuvm: pte should exist");
+        int referenced = (*pte & PTE_A);
+        if(referenced) {
+            //Clear referenced bit:
+            *pte &= (~PTE_A);
+            //Put min value to arrival time and update the time for all:
+            updateStatsOnPageEntrance(selectedPage);
+            selectedPage = -1;
+            currentMax = -1;
+        }
+        else{
+            break;
+        }
+    }
+    proc->fileData->arrivalTime[selectedPage] = 0;
+
+    return (void*)(selectedPage * PGSIZE);
+}
+
+void *selectPageToMoveNfu() {
+    int i;
+    int currentMin = 2147483647;
+    int selectedPageIndex = -1;
+    for (i = 3; i < 30; i++) {
+        pte_t *pte;
+        //Check if page is present:
+        if ((pte = walkpgdir(proc->pgdir, (void *) ((int)i*PGSIZE), 0)) == 0)
+            panic("copyuvm: pte should exist");
+        int present = (*pte & PTE_P);
+        cprintf("page %d->->%d-->%x (present)(NFU)\n", i, present, proc->fileData->nfuCounter[i]);
+        if (present && proc->fileData->nfuCounter[i] <= currentMin) {
+            currentMin = proc->fileData->nfuCounter[i];
+            selectedPageIndex = i;
+        }
+    }
+    proc->fileData->arrivalTime[selectedPageIndex] = 0xFFFF;
+    cprintf("Selected page to remove is: %d\n", selectedPageIndex);
+    return (void*)(selectedPageIndex * PGSIZE);
+}
+
+
+//
+//    for (i = lastPageSwappedOut*PGSIZE; i < proc->numOfPages*PGSIZE; i += PGSIZE) {
+//
+//        cprintf("-- checking page:  %d --\n", i/PGSIZE);
+//        if ((pte = walkpgdir(proc->pgdir, (void *) i, 0)) == 0)
+//            panic("copyuvm: pte should exist");
+//
+//        int present = (*pte & PTE_P);
+//        int swappedOut = (*pte & PTE_PG);
+//
+//
+//        if(present && !swappedOut){ //Swapping out the page:
+//            lastPageSwappedOut = (i/PGSIZE % 12) + 3;
+//            return (void*)i;
+//        }
+//    }
+//    panic("No page found for swapping");
+//}
 
 
 
 void *selectPageToMove() {
-#ifdef DEFAULT
+#ifdef NONE
     cprintf("default\n");
     return selectPageToMoveFifo();
 
 
 #elif FIFO
-    cprintf("fifo\n ");
+    cprintf("FIFO\n ");
 
     return selectPageToMoveFifo();
+
+#elif SCFIFO
+    cprintf("SCFIFO\n ");
+
+    return selectPageToMoveScFifo();
+
+#elif NFU
+    cprintf("NFU\n ");
+    return selectPageToMoveNfu();
+
 
 #endif
 
 }
 
 void movePage(pte_t* pte) {
-    cprintf("Moving page: %d to file.\n", pte);
+    cprintf("Moving page: %d to file.\n", (int)pte/PGSIZE);
     char buff[PGSIZE];
     safestrcpy(buff, (char*)pte, PGSIZE);
     cprintf("buff is:\n %x\n", buff);
@@ -101,6 +243,7 @@ void loadPageFromSwapFile(pte_t *pte, int offset){
 
 void *movePageToFile() {
     void* offset = selectPageToMove();
+    cprintf("~~~~~~~~~   Removing page: %d\n", ((int)offset/PGSIZE));
     movePage(offset);
     return offset;
 }
@@ -151,12 +294,17 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
     pte_t *pte;
     a = (char*)PGROUNDDOWN((uint)va);
     last = (char*)PGROUNDDOWN(((uint)va) + size - 1);
+
     for (;;) {
-        if ((pte = walkpgdir(pgdir, a, 1)) == 0)
+        if ((pte = walkpgdir(pgdir, a, 1)) == 0) {
             return -1;
-        if ((*pte & PTE_P) & !(*pte & PTE_PG))
+        }
+        if ((*pte & PTE_P) & !(*pte & PTE_PG)) {
             panic("remap");
+        }
         *pte = pa | perm | PTE_P;
+
+
         if (a == last)
             break;
         a += PGSIZE;
@@ -164,6 +312,18 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
     }
     return 0;
 }
+
+void removeOnePage() {
+    void *va = movePageToFile();
+    pte_t* pte = walkpgdir(proc->pgdir, va , 0);
+    uint pa = PTE_ADDR(*pte);
+    cprintf("Kfreeing: %d=>%d\n", pa, p2v(pa));
+    kfree(p2v(pa));
+    *pte = (*pte | PTE_PG);//Turn on in hard disk flag
+    *pte = (*pte & ~PTE_P);//turn off present flag
+
+}
+
 
 // There is one page table per process, plus one that's used when
 // a CPU is not running any process (kpgdir). The kernel uses the
@@ -317,33 +477,44 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
             return 0;
         }
         memset(mem, 0, PGSIZE);
-        if(proc->pid > 2) {
-            if (proc->numOfPages < MAX_PSYC_PAGES) {
-                mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
-                proc->numOfPages++;
-            }
-            else {//More than 15 pages:
-                cprintf("Pid of moving proc is: %d\n", proc->pid);
-                void *va = movePageToFile();
-                pte_t* pte = walkpgdir(pgdir, va , 0);
-                uint pa = PTE_ADDR(*pte);
-                cprintf("Kfreeing: %d=>%d", pa, p2v(pa));
-                kfree(p2v(pa));
-                *pte = (*pte | PTE_PG);//Turn on in hard disk flag
-                *pte = (*pte & ~PTE_P);//turn off present flag
+        if(!defaultPolicy && proc->pid > 2) {
+            cprintf("##### mapping page %d\n", (int)a/PGSIZE);
 
-                mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
-
-                proc->numOfPages++;
+            if (proc->numOfPages >= MAX_PSYC_PAGES) {//More than 15 pages:
+                removeOnePage();
             }
+
+            updateStatsOnPageEntrance((int)a/PGSIZE);
+            mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
+            pte_t *pte;
+            if ((pte = walkpgdir(pgdir, (void*)a, 0)) == 0)
+                panic("loaduvm: address should exist");
+
+            *pte = (*pte & ~PTE_A);//Clear referenced flag
+
+            proc->numOfPages++;
         }
-        else{
+        else{//Init and shell:
             mappages(pgdir, (char *) a, PGSIZE, v2p(mem), PTE_W | PTE_U);
             proc->numOfPages++;
         }
     }
     return newsz;
 }
+
+void updateStatsOnPageEntrance(int pageNum) {
+    //update the arrival time for all pages and NFU for new page:
+    int i;
+    for(i = 0; i < 30; i++){
+        if(proc->fileData->arrivalTime[i] > 0) {
+            proc->fileData->arrivalTime[i]++;
+        }
+
+    }
+    proc->fileData->arrivalTime[pageNum] = 1;
+    proc->fileData->nfuCounter[pageNum] = 0x8000;
+}
+
 
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
@@ -380,6 +551,23 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 
 
     return newsz;
+}
+
+void updateAgingForNfu(){
+    int i;
+    for (i = 3; i < 30; i++) {
+        int toShift = proc->fileData->nfuCounter[i];
+        toShift = toShift >> 1;
+        //TODO: Check if it works better with i * PGSIZE
+        pte_t *pte;
+        pte = walkpgdir(proc->pgdir, (void *) ((int)i * PGSIZE), 0);
+        if ((*pte & PTE_A)) {//The page was accessed since last tick:
+            toShift |= (0x8000);
+            *pte &= (~PTE_A);
+        }
+        proc->fileData->nfuCounter[i] = toShift;
+    }
+
 }
 
 // Free a page table and all the physical memory pages
@@ -461,6 +649,18 @@ uva2ka(pde_t *pgdir, char *uva)
     return (char*)p2v(PTE_ADDR(*pte));
 }
 
+void deleteOnePage(){
+    proc->numOfPages--;
+
+}
+
+void removePages(int n){
+    int i;
+    for(i = 0; i < n; i++){
+        deleteOnePage();
+    }
+}
+
 // Copy len bytes from p to user address va in page table pgdir.
 // Most useful when pgdir is not the current page table.
 // uva2ka ensures this only works for PTE_U pages.
@@ -489,27 +689,21 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 
 
 int fetchPage(int pageNum){
-    cprintf("Fetch page function\n");
+    removeOnePage();
+    cprintf("****** Fetching  page %d\n", pageNum);
     char* mem;
     mem = kalloc();
     char buff[PGSIZE];
     readFromSwapFile(proc, buff, findPageInFile(pageNum), PGSIZE);
     memmove(mem, buff, PGSIZE);
     pte_t *pte = walkpgdir(proc->pgdir, (void*)(pageNum*PGSIZE), 0);
-
-    cprintf("Present: %d\n", (*pte & PTE_P));
-    cprintf("Swapped out: %d\n", ((*pte & PTE_PG) != 0));
+    updateStatsOnPageEntrance(pageNum);
 
     *pte |= PTE_A; //Turn present on
 
     mappages(proc->pgdir, (void*)(pageNum*PGSIZE), PGSIZE, v2p(mem), PTE_W|PTE_U);
-
-
-
     *pte &= (~PTE_PG); // turn paged out off
     *pte |= PTE_A; //Turn present on
-    cprintf("Present: %d\n", (*pte & PTE_P));
-    cprintf("Swapped out: %d\n", ((*pte & PTE_PG) != 0));
 
     return 1;
 }

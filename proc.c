@@ -7,6 +7,8 @@
 #include "proc.h"
 #include "spinlock.h"
 
+extern int defaultPolicy;
+
 struct {
     struct spinlock lock;
     struct proc proc[NPROC];
@@ -17,12 +19,11 @@ static struct proc *initproc;
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
-
+extern void clearReferencedBits();
 static void wakeup1(void *chan);
-
+extern void removePages(int num);
 
 void initSwapFileData(struct proc* p) {
-    p->fileData->numberOfUsedPages = 0;
     p->fileData->lastIndex = -1;
 }
 
@@ -75,10 +76,10 @@ allocproc(void)
     p->context = (struct context*)sp;
     memset(p->context, 0, sizeof * p->context);
     p->context->eip = (uint)forkret;
-    if (p->pid > 2) { //Init (1) and Shell (2) don't need a swapFile.
+    if (!defaultPolicy && p->pid > 2) { //Init (1) and Shell (2) don't need a swapFile.
         createSwapFile(p);
         p->fileData->lastIndex = 0;
-//        p->fileData->numberOfUsedPages = 0;
+        clearReferencedBits();
     }
     // initSwapFileData(p);
     return p;
@@ -132,6 +133,12 @@ growproc(int n)
         }
     }
     else if (n < 0) {
+        //Free the pages:
+        int newSize = sz-n;
+        int numberOfNewPages = newSize/PGSIZE;
+        int numberOfPagesToRemove = sz/PGSIZE - numberOfNewPages;
+        removePages(numberOfPagesToRemove);
+
         if ((sz = deallocuvm(proc->pgdir, sz, sz + n)) == 0)
             return -1;
     }
@@ -493,7 +500,16 @@ procdump(void)
         if(p->pid > 2) {
             cprintf("lastIndex: %d\n", p->fileData->lastIndex);
         }
-        cprintf("%d %s %s  \n Size: %d\n Swapfile: %p\n numOfPages: %d\n numOfPagesInFile: %d\n\n", p->pid, state, p->name, p->sz, p->swapFile, p->numOfPages, p->numOfPagesInFile);
+        cprintf("Arrival time:\n");
+        for (i = 0; i < 15; i++){
+            cprintf("%d ", p->fileData->arrivalTime[i]);
+        }
+        cprintf("\n");
+
+        cprintf("Size: %d\n", p->sz);
+
+
+        cprintf("%d %s %s  \n Swapfile: %p\n numOfPages: %d\n numOfPagesInFile: %d\n\n", p->pid, state, p->name, p->swapFile, p->numOfPages, p->numOfPagesInFile);
 
         if (p->state == SLEEPING) {
             getcallerpcs((uint*)p->context->ebp + 2, pc);

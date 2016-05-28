@@ -35,6 +35,8 @@ void printPageTables() {
 
 }
 
+
+
 void
 printProcessDetails() {
 
@@ -97,8 +99,10 @@ sys_sbrk(void)
     if (argint(0, &n) < 0)
         return -1;
     addr = proc->sz;
-    if(proc->pid>2)
+    if(proc->pid>2) {
         cprintf("sbrk called: n=%d\n", n);
+
+    }
 
     if (growproc(n) < 0)
         return -1;
