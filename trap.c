@@ -84,11 +84,8 @@ trap(struct trapframe *tf)
             break;
 
         case T_PGFLT:
-            cprintf("missing page. rcr2: %d\n", rcr2()/PGSIZE);
-            cprintf("fetching...\n");
-            if(fetchPage(rcr2()/PGSIZE)){
+            if(fetchPage(PGROUNDDOWN(rcr2())/PGSIZE)){
                 lapiceoi();
-                cprintf("fetched page!\n");
             }
             break;
 

@@ -7,6 +7,10 @@ int
 main(int argc, char *argv[])
 {
     printf(1, "-----------  Welcome to memory testing program! -----------\n\n");
+
+
+
+
     void* m1;
 
     int pageSize = 4096;
@@ -23,30 +27,26 @@ main(int argc, char *argv[])
     memset(m2, 'a', PGSIZE*13);
     printf(1, "Setting m2 finished!\n");
 
-    getpid();
-    memset(m1, 'a', 4096*12);
-    printf(1, "Setting m1!\n");
-
-    printf(1, "Lots of memsets:\n");
-
-    printf(1, "****************************Memset1:*************************:\n");
-
-    memset(m2, 'a', PGSIZE*13);
-    printf(1, "****************************Memset2:*************************:\n");
-    memset(m1, 'b', 4096*12);
-    printf(1, "****************************Memset3:*************************:\n");
-    memset(m2, 'c', PGSIZE*13);
-    printf(1, "****************************Memset4:*************************:\n");
-    memset(m1, 'd', 4096*12);
-    printf(1, "****************************Memset5:*************************:\n");
 
 
+    sbrk(-20*PGSIZE);
+    printf(1, "Negative SBRK finished!\n");
+
+    m1 = sbrk(20*PGSIZE);
+    memset(m1, 'a', 4096*20);
 
     // getpid();
+//
+//    int pid=fork();
+//    if(pid == 0) {
+//        printf(1, "Child alive!");
+//    }
+//    else {
+//        wait();
+//        printf(1, "Parent alive!");
+//    }
 
     printf(1, "mem ok\n");
-
-
 
     exit();
 }

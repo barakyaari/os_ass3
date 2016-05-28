@@ -134,7 +134,7 @@ growproc(int n)
     }
     else if (n < 0) {
         //Free the pages:
-        int newSize = sz-n;
+        int newSize = sz+n;
         int numberOfNewPages = newSize/PGSIZE;
         int numberOfPagesToRemove = sz/PGSIZE - numberOfNewPages;
         removePages(numberOfPagesToRemove);
@@ -143,9 +143,7 @@ growproc(int n)
             return -1;
     }
     proc->sz = sz;
-    cprintf("Growproc calling switchuvm\n");
     switchuvm(proc);
-    cprintf("Growproc finished\n");
 
     return 0;
 }
@@ -159,7 +157,6 @@ fork(void)
     int i, pid;
     struct proc *np;
 
-
     // Allocate process.
     if ((np = allocproc()) == 0)
         return -1;
@@ -171,12 +168,23 @@ fork(void)
         np->state = UNUSED;
         return -1;
     }
+
     np->sz = proc->sz;
     np->parent = proc;
     *np->tf = *proc->tf;
 
     // Clear %eax so that fork returns 0 in the child.
     np->tf->eax = 0;
+//
+//    if(np->pid > 2) {
+//        int newSwapFile = createSwapFile(np);
+//        if (!newSwapFile) {
+//            int size =  proc->numOfPages * 4096;
+//            char buff[size];
+//            int read = readFromSwapFile(proc, buff, 0, size);
+//            writeToSwapFile(np, buff, 0, read);
+//        }
+//    }
 
     for (i = 0; i < NOFILE; i++)
         if (proc->ofile[i])
@@ -190,16 +198,8 @@ fork(void)
     // lock to force the compiler to emit the np->state write last.
     acquire(&ptable.lock);
     np->state = RUNNABLE;
+
     release(&ptable.lock);
-    if(proc->pid > 2) {
-        int newSwapFile = createSwapFile(np);
-        if (!newSwapFile) {
-            int size = (30 - proc->numOfPages) * 4096;
-            char buff[size];
-            readFromSwapFile(proc, buff, 0, size);
-            writeToSwapFile(np, buff, 0, size);
-        }
-    }
 
     return pid;
 }
@@ -228,7 +228,7 @@ exit(void)
     iput(proc->cwd);
     end_op();
     proc->cwd = 0;
-    //removeSwapFile(proc);
+    removeSwapFile(proc);
     acquire(&ptable.lock);
 
     // Parent might be sleeping in wait().
