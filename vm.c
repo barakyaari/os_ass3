@@ -98,6 +98,9 @@ void clearReferencedBits() {
 }
 
 void *selectPageToMoveFifo() {
+    cprintf("Fifo page selection:\n");
+  printStats(proc);
+
     int i;
     int currentMax = -1;
     int selectedPage = -1;
@@ -108,7 +111,6 @@ void *selectPageToMoveFifo() {
         }
     }
     proc->fileData->arrivalTime[selectedPage] = 0;
-
     return (void*)(selectedPage * PGSIZE);
 }
 
@@ -323,7 +325,9 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 }
 
 void* selectOnePageToRemove() {
+  cprintf("Selecting one page to remove...\n");
     void *va = selectPageToMove();//Returns index * PGSize
+    cprintf("Selected page va is: %d\n", va);
     pte_t* pte = walkpgdir(proc->pgdir, va , 0);
 //    uint pa = PTE_ADDR(*pte);
 //    kfree(p2v(pa));
@@ -521,12 +525,13 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
             int pageNumber = a/PGSIZE;
             cprintf("Adding page Number %d, pid=%d\n", pageNumber, proc->pid);
             if (proc->numOfPages >= MAX_PSYC_PAGES) {//More than 15 pages:
-
+                cprintf("Process has more than 15 pages\n");
                 void* pageToRemove = selectOnePageToRemove();
-                cprintf("Found page to remove: %x\n", pageToRemove);
+                cprintf("Found page to remove: %d\n", pageToRemove);
                 memmove(buff, pageToRemove, PGSIZE);
                 //TODO:THis causes looking for page 3 again and again....
                 //Probably mapping it incorrectly.
+
                 cprintf("memmove finished\n");
 
                 savePageInSwapFile(buff, (int)a/PGSIZE);
@@ -747,9 +752,9 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
     return 0;
 }
 
-
-
+//This function fetches a page [pageNum] from swapfile into memory.
 int fetchPage(int pageNum){
+
     cprintf("Fetching page: %d\n", pageNum);
     //Load page from swapFile into Buff:
     char buffFromFile[PGSIZE];
@@ -785,6 +790,3 @@ int fetchPage(int pageNum){
 // Blank page.
 //PAGEBREAK!
 // Blank page.
-
-
-

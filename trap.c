@@ -84,6 +84,7 @@ trap(struct trapframe *tf)
             break;
 
         case T_PGFLT:
+            cprintf("rcr2: %d\n", PGROUNDDOWN(rcr2())/PGSIZE);
             if(fetchPage(PGROUNDDOWN(rcr2())/PGSIZE)){
                 lapiceoi();
             }
